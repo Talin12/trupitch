@@ -1,0 +1,71 @@
+services:
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: ../../infrastructure/Dockerfile.web
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./apps/web:/app
+      - /app/node_modules
+    depends_on:
+      - api
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: ../../infrastructure/Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://trupitch:trupitch@postgres:5432/trupitch
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./apps/api:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  worker:
+    build:
+      context: ./apps/worker
+      dockerfile: ../../infrastructure/Dockerfile.worker
+    environment:
+      DATABASE_URL: postgresql+asyncpg://trupitch:trupitch@postgres:5432/trupitch
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./apps/worker:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: trupitch
+      POSTGRES_PASSWORD: trupitch
+      POSTGRES_DB: trupitch
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trupitch"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  postgres_data:
+  redis_data:
