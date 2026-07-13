@@ -35,6 +35,8 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://trupitch:trupitch@postgres:5432/trupitch
       REDIS_URL: redis://redis:6379/0
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
     volumes:
       - ./apps/worker:/app
     depends_on:
@@ -50,7 +52,8 @@ services:
       POSTGRES_PASSWORD: trupitch
       POSTGRES_DB: trupitch
     ports:
-      - "5432:5432"
+      # 5433 on the host: many Macs run a native Postgres on 5432
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:

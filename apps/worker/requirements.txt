@@ -1,4 +1,6 @@
+celery
 redis
+openai
 sqlalchemy
 asyncpg
 httpx

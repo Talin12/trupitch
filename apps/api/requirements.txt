@@ -1,5 +1,9 @@
 fastapi
 uvicorn[standard]
 pydantic
-sqlalchemy
+pydantic-settings
+sqlalchemy[asyncio]
 asyncpg
+alembic
+celery
+redis

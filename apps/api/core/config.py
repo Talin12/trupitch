@@ -1,14 +1,18 @@
-"""Application settings loaded from environment variables."""
+"""Application settings loaded from environment variables via Pydantic."""
 
-import os
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class Settings:
+class Settings(BaseSettings):
     app_name: str = "trupitch-api"
-    database_url: str = os.getenv(
-        "DATABASE_URL", "postgresql+asyncpg://trupitch:trupitch@localhost:5432/trupitch"
+    # Host port 5433 (see docker-compose.yml); containers override via
+    # DATABASE_URL pointing at postgres:5432 on the compose network.
+    database_url: str = (
+        "postgresql+asyncpg://trupitch:trupitch@localhost:5433/trupitch"
     )
-    redis_url: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    redis_url: str = "redis://localhost:6379/0"
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
 settings = Settings()
