@@ -8,6 +8,7 @@ from models.base import Base
 
 if TYPE_CHECKING:
     from models.campaign import Campaign
+    from models.hacker import Hacker
 
 
 class Submission(Base):
@@ -17,10 +18,14 @@ class Submission(Base):
     campaign_id: Mapped[int] = mapped_column(
         ForeignKey("campaigns.id", ondelete="CASCADE"), index=True
     )
+    # Nullable: submissions predating GitHub OAuth have no linked hacker.
+    hacker_id: Mapped[int | None] = mapped_column(
+        ForeignKey("hackers.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     team_name: Mapped[str] = mapped_column(String(255))
     github_url: Mapped[str] = mapped_column(String(512))
     pitch_text: Mapped[str] = mapped_column(Text)
-    # pending | evaluating | evaluated | disqualified
+    # SubmissionStatus values (core/constants.py)
     status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
     final_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     # Evaluation feedback or disqualification reason.
@@ -33,3 +38,4 @@ class Submission(Base):
     )
 
     campaign: Mapped["Campaign"] = relationship(back_populates="submissions")
+    hacker: Mapped["Hacker | None"] = relationship(back_populates="submissions")

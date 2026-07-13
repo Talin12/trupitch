@@ -1,3 +1,17 @@
+export interface Rule {
+  id: number;
+  description: string;
+  weight: number;
+}
+
+export interface Campaign {
+  id: number;
+  name: string;
+  deadline: string;
+  status: string;
+  rules: Rule[];
+}
+
 export interface Submission {
   id: number;
   campaign_id: number;

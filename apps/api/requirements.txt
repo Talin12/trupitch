@@ -7,3 +7,5 @@ asyncpg
 alembic
 celery
 redis
+httpx
+PyJWT

@@ -23,7 +23,7 @@ class Campaign(Base):
     )
     name: Mapped[str] = mapped_column(String(255))
     deadline: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    # draft | open | evaluating | closed
+    # CampaignStatus values (core/constants.py)
     status: Mapped[str] = mapped_column(String(32), default="draft")
 
     organizer: Mapped["Organizer"] = relationship(back_populates="campaigns")

@@ -1,6 +1,7 @@
 celery
 redis
 openai
+python-dotenv
 sqlalchemy
 asyncpg
 httpx

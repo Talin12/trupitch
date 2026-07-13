@@ -8,6 +8,13 @@ Run with:
 import json
 import logging
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Load the repo-root .env (OPENAI_API_KEY, GITHUB_TOKEN, REDIS_URL, ...)
+# before any module reads the environment at import time.
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 import redis as redis_sync
 from celery import Celery
@@ -15,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 
 from clients.errors import RetryableError
+from constants import SubmissionStatus
 from core.db import async_to_sync, get_session
 from models import Rule, Submission
 from pipeline.stage1_heuristics import run_stage_1
@@ -89,21 +97,29 @@ async def _evaluate(submission_id: int) -> dict:
             logger.error("Submission %s not found; dropping task", submission_id)
             return {"submission_id": submission_id, "status": "not_found"}
 
-        submission.status = "evaluating"
+        submission.status = SubmissionStatus.EVALUATING.value
         await session.commit()
-        publish_update(submission.campaign_id, submission_id, "evaluating")
+        publish_update(
+            submission.campaign_id, submission_id, SubmissionStatus.EVALUATING.value
+        )
 
         # Stage 1 — hard heuristics (cheap gate before expensive stages)
         passed, reason = await run_stage_1(submission.github_url)
         if not passed:
-            submission.status = "disqualified"
+            submission.status = SubmissionStatus.DISQUALIFIED.value
             submission.notes = reason
             await session.commit()
             publish_update(
-                submission.campaign_id, submission_id, "disqualified", notes=reason
+                submission.campaign_id,
+                submission_id,
+                SubmissionStatus.DISQUALIFIED.value,
+                notes=reason,
             )
             logger.info("Submission %s disqualified: %s", submission_id, reason)
-            return {"submission_id": submission_id, "status": "disqualified"}
+            return {
+                "submission_id": submission_id,
+                "status": SubmissionStatus.DISQUALIFIED.value,
+            }
 
         logger.info("Stage 1 passed for submission %s", submission_id)
 
@@ -128,20 +144,20 @@ async def _evaluate(submission_id: int) -> dict:
             "Stage 3 for submission %s: score=%s", submission_id, score
         )
 
-        submission.status = "evaluated"
+        submission.status = SubmissionStatus.EVALUATED.value
         submission.final_score = float(score)
         submission.notes = (f"{tech_summary} | {rationale}")[:NOTES_MAX_LENGTH]
         await session.commit()
         publish_update(
             submission.campaign_id,
             submission_id,
-            "evaluated",
+            SubmissionStatus.EVALUATED.value,
             score=float(score),
             notes=submission.notes,
         )
 
         return {
             "submission_id": submission_id,
-            "status": "evaluated",
+            "status": SubmissionStatus.EVALUATED.value,
             "final_score": score,
         }

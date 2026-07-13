@@ -10,7 +10,7 @@ import {
   SlidersHorizontal,
   Trophy,
 } from "lucide-react";
-import { API_BASE, type Submission } from "../types";
+import { API_BASE, type Campaign, type Submission } from "../types";
 
 const STATUS_STYLES: Record<Submission["status"], string> = {
   evaluated: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
@@ -110,18 +110,42 @@ interface LiveUpdate {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [campaignsLoaded, setCampaignsLoaded] = useState(false);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<number | null>(
+    null,
+  );
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [threshold, setThreshold] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [live, setLive] = useState(false);
 
+  useEffect(() => {
+    axios
+      .get<Campaign[]>(`${API_BASE}/api/campaigns`)
+      .then((res) => {
+        setCampaigns(res.data);
+        if (res.data.length > 0) {
+          setSelectedCampaignId(res.data[0].id);
+        } else {
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        setError("Could not load campaigns. Is the API running on port 8000?");
+        setLoading(false);
+      })
+      .finally(() => setCampaignsLoaded(true));
+  }, []);
+
   const load = async () => {
+    if (selectedCampaignId === null) return;
     setLoading(true);
     setError(null);
     try {
       const res = await axios.get<Submission[]>(
-        `${API_BASE}/api/campaigns/1/submissions`,
+        `${API_BASE}/api/campaigns/${selectedCampaignId}/submissions`,
       );
       setSubmissions(res.data);
     } catch {
@@ -132,11 +156,18 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
+    if (selectedCampaignId === null) return;
+    setSubmissions([]);
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCampaignId]);
 
   useEffect(() => {
-    const ws = new WebSocket("ws://localhost:8000/api/campaigns/1/ws");
+    if (selectedCampaignId === null) return;
+
+    const ws = new WebSocket(
+      `ws://localhost:8000/api/campaigns/${selectedCampaignId}/ws`,
+    );
 
     ws.onopen = () => setLive(true);
     ws.onclose = () => setLive(false);
@@ -165,7 +196,7 @@ export default function Dashboard() {
     };
 
     return () => ws.close();
-  }, []);
+  }, [selectedCampaignId]);
 
   const visible = useMemo(
     () =>
@@ -175,17 +206,35 @@ export default function Dashboard() {
     [submissions, threshold],
   );
 
+  const noCampaigns = campaignsLoaded && campaigns.length === 0;
+
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-4xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-2">
-            <Trophy className="h-5 w-5 text-indigo-600" />
-            <h1 className="text-lg font-semibold text-slate-900">
-              TruPitch — Organizer Dashboard
-            </h1>
+        <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-6 py-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex shrink-0 items-center gap-2">
+              <Trophy className="h-5 w-5 text-indigo-600" />
+              <span className="text-lg font-semibold text-slate-900">
+                TruPitch
+              </span>
+            </div>
+            {campaigns.length > 0 && (
+              <select
+                value={selectedCampaignId ?? ""}
+                onChange={(e) => setSelectedCampaignId(Number(e.target.value))}
+                aria-label="Select campaign"
+                className="min-w-0 max-w-64 truncate rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              >
+                {campaigns.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.status})
+                  </option>
+                ))}
+              </select>
+            )}
             <span
-              className={`ml-2 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${
+              className={`shrink-0 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${
                 live
                   ? "bg-emerald-50 text-emerald-700"
                   : "bg-slate-100 text-slate-500"
@@ -199,7 +248,7 @@ export default function Dashboard() {
               {live ? "Live" : "Offline"}
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <button
               onClick={load}
               className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
@@ -221,53 +270,80 @@ export default function Dashboard() {
       </header>
 
       <main className="mx-auto max-w-4xl px-6 py-8">
-        <div className="mb-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between">
-            <label
-              htmlFor="threshold"
-              className="inline-flex items-center gap-2 text-sm font-medium text-slate-700"
+        {noCampaigns ? (
+          <div className="rounded-lg border border-dashed border-slate-300 bg-white p-12 text-center">
+            <Trophy className="mx-auto h-8 w-8 text-slate-300" />
+            <h2 className="mt-3 text-base font-semibold text-slate-900">
+              No campaigns yet
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Create your first hackathon campaign to start receiving and
+              triaging submissions.
+            </p>
+            <button
+              onClick={() => navigate("/admin/campaigns/new")}
+              className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
             >
-              <SlidersHorizontal className="h-4 w-4 text-indigo-600" />
-              Triage threshold
-            </label>
-            <span className="text-sm tabular-nums text-slate-500">
-              score ≥ <span className="font-semibold text-slate-900">{threshold}</span>
-            </span>
+              <Plus className="h-4 w-4" />
+              Create Campaign
+            </button>
           </div>
-          <input
-            id="threshold"
-            type="range"
-            min={0}
-            max={100}
-            value={threshold}
-            onChange={(e) => setThreshold(Number(e.target.value))}
-            className="mt-3 w-full accent-indigo-600"
-          />
-          <p className="mt-1 text-xs text-slate-400">
-            {threshold === 0
-              ? "Showing all submissions."
-              : `Showing ${visible.length} of ${submissions.length} submissions.`}
-          </p>
-        </div>
-
-        {error && (
-          <div className="mb-6 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            {error}
-          </div>
-        )}
-
-        {loading && submissions.length === 0 ? (
-          <p className="text-sm text-slate-500">Loading submissions…</p>
-        ) : visible.length === 0 && !error ? (
-          <p className="text-sm text-slate-500">
-            No submissions match the current threshold.
-          </p>
         ) : (
-          <div className="space-y-3">
-            {visible.map((s) => (
-              <SubmissionCard key={s.id} submission={s} />
-            ))}
-          </div>
+          <>
+            <div className="mb-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex items-center justify-between">
+                <label
+                  htmlFor="threshold"
+                  className="inline-flex items-center gap-2 text-sm font-medium text-slate-700"
+                >
+                  <SlidersHorizontal className="h-4 w-4 text-indigo-600" />
+                  Triage threshold
+                </label>
+                <span className="text-sm tabular-nums text-slate-500">
+                  score ≥{" "}
+                  <span className="font-semibold text-slate-900">
+                    {threshold}
+                  </span>
+                </span>
+              </div>
+              <input
+                id="threshold"
+                type="range"
+                min={0}
+                max={100}
+                value={threshold}
+                onChange={(e) => setThreshold(Number(e.target.value))}
+                className="mt-3 w-full accent-indigo-600"
+              />
+              <p className="mt-1 text-xs text-slate-400">
+                {threshold === 0
+                  ? "Showing all submissions."
+                  : `Showing ${visible.length} of ${submissions.length} submissions.`}
+              </p>
+            </div>
+
+            {error && (
+              <div className="mb-6 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                {error}
+              </div>
+            )}
+
+            {loading && submissions.length === 0 ? (
+              <p className="text-sm text-slate-500">Loading submissions…</p>
+            ) : visible.length === 0 && !error ? (
+              <p className="text-sm text-slate-500">
+                {submissions.length === 0
+                  ? "No submissions in this campaign yet."
+                  : "No submissions match the current threshold."}
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {visible.map((s) => (
+                  <SubmissionCard key={s.id} submission={s} />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </main>
     </div>

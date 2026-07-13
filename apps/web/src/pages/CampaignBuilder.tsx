@@ -49,8 +49,9 @@ export default function CampaignBuilder() {
 
     setSubmitting(true);
     try {
+      // organizer_id omitted: the API resolves the configured default
+      // organizer until organizer auth exists.
       await axios.post(`${API_BASE}/api/campaigns`, {
-        organizer_id: 1, // temporary until the OAuth flow lands
         name: name.trim(),
         // datetime-local is timezone-naive; send an explicit UTC instant
         deadline: new Date(deadline).toISOString(),

@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.config import settings
-from routers import campaigns, submissions
+from routers import auth, campaigns, hacker, submissions
 
 app = FastAPI(
     title="TruPitch API",
@@ -14,13 +14,15 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[settings.frontend_url],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+app.include_router(auth.router, prefix="/api")
 app.include_router(campaigns.router, prefix="/api")
+app.include_router(hacker.router, prefix="/api")
 app.include_router(submissions.router, prefix="/api")
 
 
