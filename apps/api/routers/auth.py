@@ -18,28 +18,44 @@ from models import Hacker
 STATE_TTL = timedelta(minutes=10)
 
 
-def _issue_state() -> str:
-    """Short-lived signed token proving the OAuth flow started with us."""
+def _issue_state(next_path: str) -> str:
+    """Short-lived signed token proving the OAuth flow started with us.
+
+    Carries the SPA path to return to after login.
+    """
     now = datetime.now(timezone.utc)
     return jwt.encode(
-        {"purpose": "oauth_state", "iat": now, "exp": now + STATE_TTL},
+        {
+            "purpose": "oauth_state",
+            "next": next_path,
+            "iat": now,
+            "exp": now + STATE_TTL,
+        },
         settings.jwt_secret,
         algorithm="HS256",
     )
 
 
-def _check_state(state: str | None) -> None:
+def _check_state(state: str | None) -> dict:
     try:
         payload = jwt.decode(
             state or "", settings.jwt_secret, algorithms=["HS256"]
         )
         if payload.get("purpose") != "oauth_state":
             raise jwt.InvalidTokenError("wrong purpose")
+        return payload
     except jwt.InvalidTokenError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired OAuth state; restart the login flow",
         )
+
+
+def _safe_next(next_path: str) -> str:
+    """Only same-origin SPA paths; anything else falls back to home."""
+    if next_path.startswith("/") and not next_path.startswith("//"):
+        return next_path
+    return "/"
 
 logger = logging.getLogger(__name__)
 
@@ -51,8 +67,11 @@ GITHUB_USER_URL = "https://api.github.com/user"
 
 
 @router.get("/github/login")
-async def github_login() -> RedirectResponse:
-    """Send the hacker to GitHub's consent screen."""
+async def github_login(next: str = "/") -> RedirectResponse:
+    """Send the hacker to GitHub's consent screen.
+
+    `next` is the SPA path to return to after authentication.
+    """
     if not settings.github_client_id:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -61,7 +80,7 @@ async def github_login() -> RedirectResponse:
     return RedirectResponse(
         f"{GITHUB_AUTHORIZE_URL}"
         f"?client_id={settings.github_client_id}&scope=repo"
-        f"&state={_issue_state()}"
+        f"&state={_issue_state(_safe_next(next))}"
     )
 
 
@@ -70,7 +89,8 @@ async def github_callback(
     code: str, state: str | None = None, db: AsyncSession = Depends(get_db)
 ) -> RedirectResponse:
     """Exchange the OAuth code, upsert the hacker, hand a JWT to the SPA."""
-    _check_state(state)
+    state_payload = _check_state(state)
+    next_path = _safe_next(state_payload.get("next", "/"))
     async with httpx.AsyncClient(timeout=15.0) as client:
         try:
             token_resp = await client.post(
@@ -138,4 +158,4 @@ async def github_callback(
     await db.refresh(hacker)
 
     jwt_token = create_access_token(hacker.id)
-    return RedirectResponse(f"{settings.frontend_url}/?token={jwt_token}")
+    return RedirectResponse(f"{settings.frontend_url}{next_path}?token={jwt_token}")

@@ -25,4 +25,15 @@ export interface Submission {
   updated_at: string;
 }
 
+/** Pipeline stage hint carried by live WebSocket events (not persisted). */
+export type EvaluationStage = "verifying_repo" | "analyzing_code" | "ai_scoring";
+
+export interface LiveUpdate {
+  submission_id: number;
+  status: Submission["status"];
+  final_score: number | null;
+  notes: string | null;
+  stage?: EvaluationStage | null;
+}
+
 export const API_BASE = "http://localhost:8000";

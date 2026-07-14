@@ -53,8 +53,13 @@ def publish_update(
     status: str,
     score: float | None = None,
     notes: str | None = None,
+    stage: str | None = None,
 ) -> None:
     """Push a live progress event to the campaign's Pub/Sub channel.
+
+    `stage` is an ephemeral pipeline-progress hint (not persisted to the
+    DB) so the frontend can render a live stepper instead of a single
+    static "evaluating" state.
 
     Best-effort: the UI update is a nicety, so a Redis hiccup here must
     never fail or retry the evaluation itself.
@@ -64,6 +69,7 @@ def publish_update(
         "status": status,
         "final_score": score,
         "notes": notes,
+        "stage": stage,
     }
     try:
         _redis.publish(f"campaign_{campaign_id}_updates", json.dumps(payload))
@@ -100,7 +106,10 @@ async def _evaluate(submission_id: int) -> dict:
         submission.status = SubmissionStatus.EVALUATING.value
         await session.commit()
         publish_update(
-            submission.campaign_id, submission_id, SubmissionStatus.EVALUATING.value
+            submission.campaign_id,
+            submission_id,
+            SubmissionStatus.EVALUATING.value,
+            stage="verifying_repo",
         )
 
         # Stage 1 — hard heuristics (cheap gate before expensive stages)
@@ -122,6 +131,12 @@ async def _evaluate(submission_id: int) -> dict:
             }
 
         logger.info("Stage 1 passed for submission %s", submission_id)
+        publish_update(
+            submission.campaign_id,
+            submission_id,
+            SubmissionStatus.EVALUATING.value,
+            stage="analyzing_code",
+        )
 
         rules = [
             {"description": r.description, "weight": r.weight}
@@ -135,6 +150,12 @@ async def _evaluate(submission_id: int) -> dict:
         # Stage 2 — code structure analysis
         tech_summary = await run_stage_2(submission.github_url)
         logger.info("Stage 2 for submission %s: %s", submission_id, tech_summary)
+        publish_update(
+            submission.campaign_id,
+            submission_id,
+            SubmissionStatus.EVALUATING.value,
+            stage="ai_scoring",
+        )
 
         # Stage 3 — LLM qualitative scoring
         score, rationale = await run_stage_3(

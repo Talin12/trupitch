@@ -5,12 +5,19 @@ import {
   ChevronDown,
   ChevronUp,
   ExternalLink,
+  Loader2,
   Plus,
   RefreshCw,
   SlidersHorizontal,
   Trophy,
 } from "lucide-react";
-import { API_BASE, type Campaign, type Submission } from "../types";
+import {
+  API_BASE,
+  type Campaign,
+  type EvaluationStage,
+  type LiveUpdate,
+  type Submission,
+} from "../types";
 
 const STATUS_STYLES: Record<Submission["status"], string> = {
   evaluated: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
@@ -19,17 +26,39 @@ const STATUS_STYLES: Record<Submission["status"], string> = {
   disqualified: "bg-red-50 text-red-700 ring-red-600/20",
 };
 
-function StatusPill({ status }: { status: Submission["status"] }) {
+const STAGE_LABELS: Record<EvaluationStage, string> = {
+  verifying_repo: "verifying repo",
+  analyzing_code: "analyzing code",
+  ai_scoring: "AI scoring",
+};
+
+function StatusPill({
+  status,
+  stage,
+}: {
+  status: Submission["status"];
+  stage?: EvaluationStage | null;
+}) {
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${STATUS_STYLES[status]}`}
+      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${STATUS_STYLES[status]}`}
     >
-      {status}
+      {status === "evaluating" && <Loader2 className="h-3 w-3 animate-spin" />}
+      {status === "evaluating" && stage ? STAGE_LABELS[stage] : status}
     </span>
   );
 }
 
-function ScoreBadge({ score }: { score: number | null }) {
+function ScoreBadge({
+  score,
+  status,
+}: {
+  score: number | null;
+  status: Submission["status"];
+}) {
+  if (status === "evaluating") {
+    return <Loader2 className="ml-auto h-5 w-5 animate-spin text-teal-500" />;
+  }
   if (score === null) {
     return <span className="text-2xl font-semibold text-slate-300">—</span>;
   }
@@ -46,18 +75,24 @@ function ScoreBadge({ score }: { score: number | null }) {
   );
 }
 
-function SubmissionCard({ submission }: { submission: Submission }) {
+function SubmissionCard({
+  submission,
+  stage,
+}: {
+  submission: Submission;
+  stage?: EvaluationStage | null;
+}) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h3 className="truncate text-base font-semibold text-slate-900">
               {submission.team_name}
             </h3>
-            <StatusPill status={submission.status} />
+            <StatusPill status={submission.status} stage={stage} />
           </div>
           <a
             href={submission.github_url}
@@ -72,7 +107,7 @@ function SubmissionCard({ submission }: { submission: Submission }) {
           </a>
         </div>
         <div className="text-right">
-          <ScoreBadge score={submission.final_score} />
+          <ScoreBadge score={submission.final_score} status={submission.status} />
           <div className="text-xs text-slate-400">score</div>
         </div>
       </div>
@@ -101,13 +136,6 @@ function SubmissionCard({ submission }: { submission: Submission }) {
   );
 }
 
-interface LiveUpdate {
-  submission_id: number;
-  status: Submission["status"];
-  final_score: number | null;
-  notes: string | null;
-}
-
 export default function Dashboard() {
   const navigate = useNavigate();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -116,6 +144,9 @@ export default function Dashboard() {
     null,
   );
   const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [liveStages, setLiveStages] = useState<
+    Record<number, EvaluationStage | null>
+  >({});
   const [threshold, setThreshold] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -193,6 +224,10 @@ export default function Dashboard() {
             : s,
         ),
       );
+      setLiveStages((prev) => ({
+        ...prev,
+        [update.submission_id]: update.stage ?? null,
+      }));
     };
 
     return () => ws.close();
@@ -214,7 +249,7 @@ export default function Dashboard() {
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-6 py-4">
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex shrink-0 items-center gap-2">
-              <Trophy className="h-5 w-5 text-indigo-600" />
+              <Trophy className="h-5 w-5 text-teal-600" />
               <span className="text-lg font-semibold text-slate-900">
                 TruPitch
               </span>
@@ -224,7 +259,7 @@ export default function Dashboard() {
                 value={selectedCampaignId ?? ""}
                 onChange={(e) => setSelectedCampaignId(Number(e.target.value))}
                 aria-label="Select campaign"
-                className="min-w-0 max-w-64 truncate rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="min-w-0 max-w-64 truncate rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
               >
                 {campaigns.map((c) => (
                   <option key={c.id} value={c.id}>
@@ -260,7 +295,7 @@ export default function Dashboard() {
             </button>
             <button
               onClick={() => navigate("/admin/campaigns/new")}
-              className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-500"
+              className="inline-flex items-center gap-1.5 rounded-md bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-500"
             >
               <Plus className="h-4 w-4" />
               Create Campaign
@@ -282,7 +317,7 @@ export default function Dashboard() {
             </p>
             <button
               onClick={() => navigate("/admin/campaigns/new")}
-              className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
+              className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-500"
             >
               <Plus className="h-4 w-4" />
               Create Campaign
@@ -296,7 +331,7 @@ export default function Dashboard() {
                   htmlFor="threshold"
                   className="inline-flex items-center gap-2 text-sm font-medium text-slate-700"
                 >
-                  <SlidersHorizontal className="h-4 w-4 text-indigo-600" />
+                  <SlidersHorizontal className="h-4 w-4 text-teal-600" />
                   Triage threshold
                 </label>
                 <span className="text-sm tabular-nums text-slate-500">
@@ -313,7 +348,7 @@ export default function Dashboard() {
                 max={100}
                 value={threshold}
                 onChange={(e) => setThreshold(Number(e.target.value))}
-                className="mt-3 w-full accent-indigo-600"
+                className="mt-3 w-full accent-teal-600"
               />
               <p className="mt-1 text-xs text-slate-400">
                 {threshold === 0
@@ -339,7 +374,11 @@ export default function Dashboard() {
             ) : (
               <div className="space-y-3">
                 {visible.map((s) => (
-                  <SubmissionCard key={s.id} submission={s} />
+                  <SubmissionCard
+                    key={s.id}
+                    submission={s}
+                    stage={liveStages[s.id] ?? null}
+                  />
                 ))}
               </div>
             )}
