@@ -1,3 +1,7 @@
+## Template Alembic fills in every time `alembic revision` (or
+## `--autogenerate`) creates a new migration file under
+## apps/api/alembic/versions/. Not meant to be run directly — this is
+## the boilerplate every generated migration file starts from.
 """${message}
 
 Revision ID: ${up_revision}

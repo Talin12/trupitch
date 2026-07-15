@@ -1,3 +1,12 @@
+"""Submission ingestion and polling.
+
+Mounted with no extra prefix by main.py (unlike the other routers), so
+the two routes below are literally /api/campaigns/{id}/submit and
+/api/submissions/{id} — the campaign one lives here rather than in
+campaigns.py because it's about hackers submitting, not organizers
+managing campaigns.
+"""
+
 import logging
 from urllib.parse import urlparse
 
@@ -25,6 +34,9 @@ async def _verify_repo_access(hacker: Hacker, github_url: str) -> None:
     trust that. Fails open only on transient GitHub errors (5xx/network),
     never on a definitive 'no access' answer.
     """
+    # Extract "owner" and "repo" from a URL like
+    # https://github.com/owner/repo(.git)? — anything that isn't
+    # shaped like that is rejected before we ever call GitHub.
     parsed = urlparse(github_url)
     parts = [p for p in parsed.path.split("/") if p]
     if parsed.hostname not in ("github.com", "www.github.com") or len(parts) < 2:
@@ -35,6 +47,10 @@ async def _verify_repo_access(hacker: Hacker, github_url: str) -> None:
     owner, repo = parts[0], parts[1].removesuffix(".git")
 
     try:
+        # Ask GitHub for this repo *as the hacker* (their OAuth token),
+        # not as an anonymous/app-level caller — the response includes
+        # a "permissions" block reflecting what *this specific user*
+        # can do with the repo.
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
                 f"https://api.github.com/repos/{owner}/{repo}",
@@ -53,11 +69,16 @@ async def _verify_repo_access(hacker: Hacker, github_url: str) -> None:
             detail="GitHub token expired; please re-authenticate",
         )
     if resp.status_code == 404:
+        # From GitHub's perspective, "doesn't exist" and "exists but you
+        # can't see it" both return 404 — either way the hacker doesn't
+        # get to submit it.
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Repository {owner}/{repo} not found or not accessible to you",
         )
     if resp.status_code != 200:
+        # Some other unexpected GitHub response (5xx, rate limit, etc.):
+        # log it but don't block the submission over an API hiccup.
         logger.warning(
             "Repo access check got %s for %s/%s", resp.status_code, owner, repo
         )
@@ -80,7 +101,19 @@ async def submit_project(
     db: AsyncSession = Depends(get_db),
     current_hacker: Hacker = Depends(get_current_hacker)
 ) -> Submission:
-    """Ingest a submission: persist it, queue evaluation, return immediately."""
+    """Ingest a submission: persist it, queue evaluation, return immediately.
+
+    This is the critical hand-off point between the API and the worker:
+    the row is committed to Postgres as SubmissionStatus.PENDING *before*
+    the Celery task is dispatched, so even if the broker dispatch below
+    fails, the submission itself is never lost — it just needs to be
+    re-queued (see the except block).
+
+    `current_hacker` comes from the Authorization: Bearer <jwt> header;
+    FastAPI resolves it via the get_current_hacker dependency before this
+    function body ever runs, so an unauthenticated request never reaches
+    here at all (it 401s first).
+    """
     campaign = await db.get(Campaign, campaign_id)
     if campaign is None:
         raise HTTPException(
@@ -112,6 +145,10 @@ async def submit_project(
     await db.refresh(submission)
 
     try:
+        # Fire-and-forget: the API never imports the worker's Celery app
+        # (see core/celery_client.py) — this just drops a message named
+        # "evaluate_submission" onto the Redis queue with the new row's
+        # id, and returns immediately without waiting for it to run.
         celery_client.send_task("evaluate_submission", args=[submission.id])
     except Exception:
         # The submission is already durable in Postgres; surface the broker
@@ -135,7 +172,12 @@ async def submit_project(
 async def get_submission(
     submission_id: int, db: AsyncSession = Depends(get_db)
 ) -> Submission:
-    """Polling endpoint: live evaluation status and final score."""
+    """Polling endpoint: live evaluation status and final score.
+
+    Not the primary way the dashboard gets updates (that's the WebSocket
+    in campaigns.py), but a plain REST fallback for anyone who wants to
+    check a single submission's status without a live connection.
+    """
     submission = await db.get(Submission, submission_id)
     if submission is None:
         raise HTTPException(

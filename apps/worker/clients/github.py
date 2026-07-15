@@ -1,4 +1,12 @@
-"""Lightweight async GitHub API client."""
+"""Lightweight async GitHub API client.
+
+Every public function here takes a GitHub repo URL and talks to
+api.github.com on the worker's behalf, using the optional GITHUB_TOKEN
+environment variable for higher rate limits (60/hour unauthenticated vs
+5,000/hour authenticated) — see _get() below. Used by both pipeline
+stages: Stage 1 (check_repo_exists) and Stage 2 (get_repo_languages,
+get_repo_tree).
+"""
 
 import logging
 import os
@@ -22,7 +30,11 @@ __all__ = [
 
 
 def parse_repo_path(url: str) -> tuple[str, str] | None:
-    """Extract (owner, repo) from a GitHub URL, or None if it isn't one."""
+    """Extract (owner, repo) from a GitHub URL, or None if it isn't one.
+
+    Accepts both github.com and www.github.com, and strips a trailing
+    ".git" from the repo name if present (e.g. from a clone URL).
+    """
     parsed = urlparse(url)
     if parsed.hostname not in ("github.com", "www.github.com"):
         return None
@@ -34,7 +46,11 @@ def parse_repo_path(url: str) -> tuple[str, str] | None:
 
 
 async def _get(path: str) -> httpx.Response:
-    """GET a GitHub API path; raise RetryableError on transient failures."""
+    """GET a GitHub API path; raise RetryableError on transient failures.
+
+    Shared by every function below so the auth header, timeout, and
+    rate-limit/5xx handling only needs to be written once.
+    """
     headers = {
         "Accept": "application/vnd.github+json",
         "User-Agent": "trupitch-worker",
@@ -47,8 +63,15 @@ async def _get(path: str) -> httpx.Response:
         async with httpx.AsyncClient(timeout=15.0, headers=headers) as client:
             resp = await client.get(f"{GITHUB_API}{path}")
     except httpx.HTTPError as exc:
+        # Network failure (DNS, connection reset, timeout, ...): always
+        # worth retrying.
         raise RetryableError(f"GitHub request failed: {exc}") from exc
 
+    # 403/429 here typically mean "rate limited" (GitHub overloads 403
+    # for both auth failures and abuse-rate-limiting; in practice a
+    # well-formed request with our own token hitting 403 is the rate
+    # limit case). 5xx is GitHub's own outage. Both are worth retrying
+    # later rather than treating the submission as permanently broken.
     if resp.status_code in (403, 429):
         raise RetryableError(f"GitHub rate limited ({resp.status_code}) on {path}")
     if resp.status_code >= 500:
@@ -57,6 +80,11 @@ async def _get(path: str) -> httpx.Response:
 
 
 def _repo_path_or_raise(url: str) -> tuple[str, str]:
+    """Like parse_repo_path, but raises instead of returning None —
+    used by the Stage 2 functions below, which are only ever called
+    *after* Stage 1 has already confirmed the URL is a real GitHub repo,
+    so a parse failure here would indicate a bug, not bad user input.
+    """
     repo_path = parse_repo_path(url)
     if repo_path is None:
         raise ValueError(f"Not a GitHub repository URL: {url}")
@@ -64,7 +92,14 @@ def _repo_path_or_raise(url: str) -> tuple[str, str]:
 
 
 async def check_repo_exists(url: str) -> bool:
-    """True if the repo exists and is visible, False if not (or not a repo URL)."""
+    """True if the repo exists and is visible, False if not (or not a repo URL).
+
+    This is Stage 1's entire heuristic today: a repo that 404s (deleted,
+    private, or a typo) or isn't a GitHub URL at all fails validation;
+    anything else (network hiccup, rate limit, 5xx) raises
+    RetryableError instead of returning False, so a submission is never
+    wrongly disqualified just because GitHub was briefly unreachable.
+    """
     repo_path = parse_repo_path(url)
     if repo_path is None:
         return False
@@ -81,7 +116,12 @@ async def check_repo_exists(url: str) -> bool:
 
 
 async def get_repo_languages(url: str) -> dict:
-    """Language byte counts, e.g. {"Python": 12345, "TypeScript": 678}."""
+    """Language byte counts, e.g. {"Python": 12345, "TypeScript": 678}.
+
+    Feeds Stage 2's tech-stack summary (see
+    pipeline/stage2_structure.py), which picks the top few languages by
+    byte count to describe what the project is written in.
+    """
     owner, repo = _repo_path_or_raise(url)
     resp = await _get(f"/repos/{owner}/{repo}/languages")
     if resp.status_code == 200:
@@ -94,7 +134,14 @@ async def get_repo_languages(url: str) -> dict:
 
 
 async def get_repo_tree(url: str) -> list[str]:
-    """All file paths in the repo at HEAD (empty list for empty/missing tree)."""
+    """All file paths in the repo at HEAD (empty list for empty/missing tree).
+
+    Used by Stage 2 to (a) count total files as a rough size signal and
+    (b) spot dependency manifest filenames (package.json, etc.) anywhere
+    in the tree. GitHub's tree API is recursive but can truncate very
+    large repos — that case is logged but not treated as an error, since
+    a partial file listing is still useful.
+    """
     owner, repo = _repo_path_or_raise(url)
     resp = await _get(f"/repos/{owner}/{repo}/git/trees/HEAD?recursive=1")
     if resp.status_code == 200:
@@ -104,7 +151,7 @@ async def get_repo_tree(url: str) -> list[str]:
         return [
             item["path"]
             for item in payload.get("tree", [])
-            if item.get("type") == "blob"
+            if item.get("type") == "blob"  # "blob" = file; skip subtree/tree entries
         ]
     if resp.status_code in (404, 409):  # 409: repository is empty
         return []

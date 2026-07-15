@@ -1,4 +1,7 @@
 {
+  // TypeScript project config for the Vite frontend. `noEmit: true`
+  // because Vite (via esbuild) does the actual JS compilation — tsc
+  // here only type-checks (`tsc -b` in package.json's build script).
   "compilerOptions": {
     "target": "ES2020",
     "useDefineForClassFields": true,

@@ -1,7 +1,12 @@
-celery
-redis
-openai
-python-dotenv
-sqlalchemy
-asyncpg
-httpx
+# apps/worker Python dependencies. Install into the shared repo-root
+# .venv: pip install -r apps/api/requirements.txt -r apps/worker/requirements.txt
+
+celery          # task queue framework; tasks.py registers evaluate_submission
+redis           # Celery's broker/result backend, and the Pub/Sub publisher
+                # used by tasks.py's publish_update for live dashboard updates
+openai          # SDK for Stage 3 LLM scoring (clients/llm.py) — works against
+                # any OpenAI-compatible endpoint, not just OpenAI itself
+python-dotenv   # loads the repo-root .env at worker startup (tasks.py)
+sqlalchemy      # async ORM for the worker's own minimal models (models.py)
+asyncpg         # async Postgres driver
+httpx           # async HTTP client for the GitHub API (clients/github.py)

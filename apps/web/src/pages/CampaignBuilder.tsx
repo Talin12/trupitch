@@ -1,26 +1,93 @@
+// Organizer-facing form ("/admin/campaigns/new") for creating a new
+// hackathon campaign: standard entry rules (team size, deadlines, late
+// submission policy) on one side, the weighted judging rubric on the
+// other. On success it POSTs directly to the campaigns API and
+// redirects back to the dashboard.
+
 import { useState } from "react";
 import axios, { AxiosError } from "axios";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, CalendarClock, ClipboardList, Plus, Trash2 } from "lucide-react";
+import {
+  ArrowLeft,
+  CalendarClock,
+  ClipboardList,
+  Plus,
+  Settings2,
+  Trash2,
+} from "lucide-react";
 import { API_BASE } from "../types";
 
+// Local-only shape for a rule while it's still being edited in this
+// form; converted to the API's RuleCreate shape on submit.
 interface RuleDraft {
   description: string;
   weight: number;
 }
 
+// Shared Tailwind classes for every text/number/date input on this page.
 const INPUT_CLASS =
-  "w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 " +
-  "placeholder:text-slate-400 focus:border-teal-500 focus:outline-none " +
+  "w-full rounded-md border border-white/10 bg-zinc-950 px-3 py-2 text-sm text-zinc-50 " +
+  "placeholder:text-zinc-500 focus:border-teal-500 focus:outline-none " +
   "focus:ring-1 focus:ring-teal-500";
+
+const LABEL_CLASS = "mb-1 block text-sm font-medium text-zinc-300";
+
+// A hand-rolled on/off switch (no extra dependency) used for the
+// "Allow late submissions" setting. Purely presentational — all state
+// lives in the parent via `checked`/`onChange`.
+function Toggle({
+  checked,
+  onChange,
+  label,
+  description,
+}: {
+  checked: boolean;
+  onChange: (value: boolean) => void;
+  label: string;
+  description: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <div>
+        <p className="text-sm font-medium text-zinc-300">{label}</p>
+        <p className="text-xs text-zinc-500">{description}</p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(!checked)}
+        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-1 focus:ring-teal-500 focus:ring-offset-2 focus:ring-offset-zinc-900 ${
+          checked ? "bg-teal-600" : "bg-zinc-700"
+        }`}
+      >
+        <span
+          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+            checked ? "translate-x-6" : "translate-x-1"
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
 
 export default function CampaignBuilder() {
   const navigate = useNavigate();
+
+  // --- "Standard Configuration" fields ---
   const [name, setName] = useState("");
+  const [startDate, setStartDate] = useState("");
   const [deadline, setDeadline] = useState("");
+  const [maxTeamSize, setMaxTeamSize] = useState(4);
+  const [maxSubmissionsPerTeam, setMaxSubmissionsPerTeam] = useState(1);
+  const [allowLateSubmissions, setAllowLateSubmissions] = useState(false);
+
+  // --- "Evaluation Rubric" — one example rule pre-filled to show the
+  // organizer the expected shape/tone of a good rule. ---
   const [rules, setRules] = useState<RuleDraft[]>([
     { description: "Uses AI meaningfully, not as a gimmick", weight: 1.0 },
   ]);
+
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,6 +106,9 @@ export default function CampaignBuilder() {
     e.preventDefault();
     setError(null);
 
+    // Blank rule rows (added via "Add Rule" but never filled in) are
+    // silently dropped rather than rejected — only a genuinely empty
+    // rubric (zero non-blank rules) blocks submission.
     const cleanRules = rules.filter((r) => r.description.trim().length > 0);
     if (!name.trim() || !deadline || cleanRules.length === 0) {
       setError(
@@ -53,9 +123,13 @@ export default function CampaignBuilder() {
       // organizer until organizer auth exists.
       await axios.post(`${API_BASE}/api/campaigns`, {
         name: name.trim(),
-        // datetime-local is timezone-naive; send an explicit UTC instant
+        // datetime-local is timezone-naive; send explicit UTC instants
+        start_date: startDate ? new Date(startDate).toISOString() : null,
         deadline: new Date(deadline).toISOString(),
         status: "open",
+        max_team_size: maxTeamSize,
+        max_submissions_per_team: maxSubmissionsPerTeam,
+        allow_late_submissions: allowLateSubmissions,
         rules: cleanRules,
       });
       navigate("/admin");
@@ -72,149 +146,219 @@ export default function CampaignBuilder() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-3xl items-center gap-3 px-6 py-4">
+    <div className="min-h-screen bg-zinc-950">
+      <header className="border-b border-white/10 bg-zinc-950">
+        <div className="mx-auto flex max-w-5xl items-center gap-3 px-6 py-4">
           <button
             onClick={() => navigate("/admin")}
-            className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-900"
+            className="inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-50"
           >
             <ArrowLeft className="h-4 w-4" />
             Dashboard
           </button>
-          <span className="text-slate-300">/</span>
-          <h1 className="text-lg font-semibold text-slate-900">New Campaign</h1>
+          <span className="text-zinc-700">/</span>
+          <h1 className="text-lg font-semibold text-zinc-50">New Campaign</h1>
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl px-6 py-8">
+      <main className="mx-auto max-w-5xl px-6 py-8">
         {error && (
-          <div className="mb-6 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <div className="mb-6 rounded-md border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-400">
             {error}
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="mb-4 flex items-center gap-2">
-              <CalendarClock className="h-4 w-4 text-teal-600" />
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">
-                General Info
-              </h2>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label
-                  htmlFor="name"
-                  className="mb-1 block text-sm font-medium text-slate-700"
-                >
-                  Campaign name
-                </label>
-                <input
-                  id="name"
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Spring AI Hackathon 2026"
-                  className={INPUT_CLASS}
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="deadline"
-                  className="mb-1 block text-sm font-medium text-slate-700"
-                >
-                  Submission deadline
-                </label>
-                <input
-                  id="deadline"
-                  type="datetime-local"
-                  required
-                  value={deadline}
-                  onChange={(e) => setDeadline(e.target.value)}
-                  className={INPUT_CLASS}
-                />
-              </div>
-            </div>
-          </section>
-
-          <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="mb-1 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <ClipboardList className="h-4 w-4 text-teal-600" />
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">
-                  Evaluation Rubric
+          {/* Two-column layout: entry rules on the left, rubric on the
+              right (stacks to one column below the lg breakpoint). */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            <section className="rounded-lg border border-white/10 bg-zinc-900 p-6">
+              <div className="mb-4 flex items-center gap-2">
+                <Settings2 className="h-4 w-4 text-teal-400" />
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">
+                  Standard Configuration
                 </h2>
               </div>
-              <button
-                type="button"
-                onClick={addRule}
-                className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Add Rule
-              </button>
-            </div>
-            <p className="mb-4 text-xs text-slate-400">
-              The AI judge weighs each rule by its weight when scoring
-              submissions.
-            </p>
 
-            <div className="space-y-3">
-              {rules.map((rule, index) => (
-                <div key={index} className="flex items-start gap-2">
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="name" className={LABEL_CLASS}>
+                    Campaign name
+                  </label>
                   <input
+                    id="name"
                     type="text"
-                    value={rule.description}
-                    onChange={(e) =>
-                      updateRule(index, { description: e.target.value })
-                    }
-                    placeholder="e.g. Working end-to-end demo in the repo"
+                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Spring AI Hackathon 2026"
                     className={INPUT_CLASS}
                   />
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0.1"
-                    value={rule.weight}
-                    onChange={(e) =>
-                      updateRule(index, { weight: Number(e.target.value) })
-                    }
-                    aria-label="Rule weight"
-                    className={`${INPUT_CLASS} w-24 shrink-0`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeRule(index)}
-                    disabled={rules.length === 1}
-                    aria-label="Remove rule"
-                    className="mt-1 shrink-0 rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
                 </div>
-              ))}
-            </div>
-          </section>
 
-          <div className="flex justify-end gap-3">
-            <button
-              type="button"
-              onClick={() => navigate("/admin")}
-              className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {submitting ? "Creating…" : "Create Campaign"}
-            </button>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="startDate" className={LABEL_CLASS}>
+                      Start date
+                    </label>
+                    {/* Optional — purely informational on the frontend,
+                        not enforced by the API. */}
+                    <input
+                      id="startDate"
+                      type="datetime-local"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className={INPUT_CLASS}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="deadline" className={LABEL_CLASS}>
+                      Deadline
+                    </label>
+                    <input
+                      id="deadline"
+                      type="datetime-local"
+                      required
+                      value={deadline}
+                      onChange={(e) => setDeadline(e.target.value)}
+                      className={INPUT_CLASS}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="teamSize" className={LABEL_CLASS}>
+                      Max team size
+                    </label>
+                    <input
+                      id="teamSize"
+                      type="number"
+                      min={1}
+                      required
+                      value={maxTeamSize}
+                      onChange={(e) => setMaxTeamSize(Number(e.target.value))}
+                      className={INPUT_CLASS}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="subsPerTeam" className={LABEL_CLASS}>
+                      Submissions / team
+                    </label>
+                    <input
+                      id="subsPerTeam"
+                      type="number"
+                      min={1}
+                      required
+                      value={maxSubmissionsPerTeam}
+                      onChange={(e) =>
+                        setMaxSubmissionsPerTeam(Number(e.target.value))
+                      }
+                      className={INPUT_CLASS}
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-md border border-white/10 bg-zinc-950 px-4 py-3">
+                  <Toggle
+                    checked={allowLateSubmissions}
+                    onChange={setAllowLateSubmissions}
+                    label="Allow late submissions"
+                    description="Accept submissions after the deadline has passed"
+                  />
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-lg border border-white/10 bg-zinc-900 p-6">
+              <div className="mb-1 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ClipboardList className="h-4 w-4 text-teal-400" />
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">
+                    Evaluation Rubric
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={addRule}
+                  className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-zinc-950 px-2.5 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add Rule
+                </button>
+              </div>
+              <p className="mb-4 text-xs text-zinc-500">
+                The AI judge weighs each rule by its weight when scoring
+                submissions.
+              </p>
+
+              <div className="space-y-2">
+                {/* One compact row per rule: description + weight +
+                    remove button. Removing is disabled when only one
+                    rule remains, so the rubric can never be emptied via
+                    this button (the form-level validation above still
+                    guards against a rubric of only-blank rows). */}
+                {rules.map((rule, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center gap-2 rounded-md border border-white/5 bg-zinc-950/60 p-2"
+                  >
+                    <input
+                      type="text"
+                      value={rule.description}
+                      onChange={(e) =>
+                        updateRule(index, { description: e.target.value })
+                      }
+                      placeholder="e.g. Working end-to-end demo in the repo"
+                      className={`${INPUT_CLASS} border-transparent bg-transparent px-2 py-1.5`}
+                    />
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0.1"
+                      value={rule.weight}
+                      onChange={(e) =>
+                        updateRule(index, { weight: Number(e.target.value) })
+                      }
+                      aria-label="Rule weight"
+                      className={`${INPUT_CLASS} w-16 shrink-0 px-2 py-1.5 text-center`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeRule(index)}
+                      disabled={rules.length === 1}
+                      aria-label="Remove rule"
+                      className="shrink-0 rounded-md p-1.5 text-zinc-600 hover:bg-red-500/10 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-zinc-900 px-6 py-4">
+            <p className="flex items-center gap-1.5 text-xs text-zinc-500">
+              <CalendarClock className="h-3.5 w-3.5" />
+              Campaign opens immediately for submissions once created.
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => navigate("/admin")}
+                className="rounded-md border border-white/10 bg-zinc-950 px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {submitting ? "Creating…" : "Create Campaign"}
+              </button>
+            </div>
           </div>
         </form>
       </main>
