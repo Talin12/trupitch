@@ -1,8 +1,3 @@
-# Local development stack: all 5 services TruPitch needs. In practice,
-# most development runs postgres+redis via this file and the api/
-# worker/web processes directly on the host (see README.md's "Run"
-# section) for faster reload — but `docker compose up --build` brings
-# up everything, including api/worker/web, in containers too.
 services:
   web:
     build:
@@ -12,9 +7,6 @@ services:
       - "5173:5173"
     volumes:
       - ./apps/web:/app
-      # Anonymous volume: keeps the container's own node_modules
-      # (installed during build) instead of being shadowed by the host
-      # bind mount above, which usually doesn't have node_modules at all.
       - /app/node_modules
     depends_on:
       - api
@@ -26,25 +18,15 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # Inside the compose network, Postgres/Redis are reachable by
-      # service name (postgres/redis) on their default ports — this is
-      # deliberately different from the host-side default in
-      # core/config.py, which points at localhost:5433.
       DATABASE_URL: postgresql+asyncpg://trupitch:trupitch@postgres:5432/trupitch
       REDIS_URL: redis://redis:6379/0
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
-      # `:?` = fail the compose run immediately if JWT_SECRET isn't set
-      # in the host's .env — matches core/config.py's Settings.jwt_secret
-      # having no default, so a missing secret is never silently allowed.
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
     volumes:
       - ./apps/api:/app
     depends_on:
-      # Wait for Postgres to actually accept connections (via its
-      # healthcheck below), not just for the container to start — the
-      # API would otherwise race Postgres's own startup.
       postgres:
         condition: service_healthy
       redis:
@@ -74,7 +56,6 @@ services:
       POSTGRES_PASSWORD: trupitch
       POSTGRES_DB: trupitch
     ports:
-      # 5433 on the host: many Macs run a native Postgres on 5432
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -91,9 +72,6 @@ services:
     volumes:
       - redis_data:/data
 
-# Named volumes persist database/cache contents across
-# `docker compose down` (but not `docker compose down -v`), so local
-# data survives a routine restart of the stack.
 volumes:
   postgres_data:
   redis_data:

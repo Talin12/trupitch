@@ -1,15 +1,13 @@
-# apps/api Python dependencies. Install into the shared repo-root
-# .venv: pip install -r apps/api/requirements.txt -r apps/worker/requirements.txt
-
-fastapi              # web framework + WebSocket support
-uvicorn[standard]    # ASGI server that runs the FastAPI app
-pydantic             # request/response validation (schemas/*.py)
-pydantic-settings    # loads core/config.py's Settings from .env
-sqlalchemy[asyncio]  # async ORM (models/*.py); [asyncio] pulls in greenlet
-asyncpg              # async Postgres driver used by SQLAlchemy
-alembic              # database migrations (alembic/versions/*.py)
-celery               # only used here for celery_client.py's send_task
-                     # (the API dispatches jobs; it never runs a worker)
-redis                # redis.asyncio client for the campaign Pub/Sub WebSocket
-httpx                # async HTTP client (GitHub OAuth exchange, repo checks)
-PyJWT                # signs/verifies session JWTs (core/security.py)
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+sqlalchemy[asyncio]
+asyncpg
+alembic
+sqladmin
+itsdangerous
+celery
+redis
+httpx
+PyJWT

@@ -1,8 +1,3 @@
-// The organizer-facing leaderboard ("/admin"): a sidebar for picking
-// which campaign to view, plus a dense data table of that campaign's
-// submissions that updates live over WebSocket as the worker evaluates
-// each one — no polling, no manual refresh needed to see progress.
-
 import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
@@ -22,8 +17,6 @@ import {
   type Submission,
 } from "../types";
 
-// Small colored dot shown next to each row's status text — deliberately
-// tiny/subtle rather than a big colored pill, to keep the table dense.
 const STATUS_DOT: Record<Submission["status"], string> = {
   evaluated: "bg-emerald-400",
   evaluating: "bg-amber-400",
@@ -31,7 +24,6 @@ const STATUS_DOT: Record<Submission["status"], string> = {
   disqualified: "bg-red-400",
 };
 
-// The 4 toggleable filter chips shown above the table, in display order.
 const STATUS_FILTERS: { key: Submission["status"]; label: string }[] = [
   { key: "pending", label: "Pending" },
   { key: "evaluating", label: "Evaluating" },
@@ -39,17 +31,12 @@ const STATUS_FILTERS: { key: Submission["status"]; label: string }[] = [
   { key: "disqualified", label: "Disqualified" },
 ];
 
-// Human-readable label for the live sub-stage shown while a row's
-// status is "evaluating" (see EvaluationStage in types.ts).
 const STAGE_LABELS: Record<EvaluationStage, string> = {
   verifying_repo: "verifying repo",
   analyzing_code: "analyzing code",
   ai_scoring: "AI scoring",
 };
 
-// Score-band coloring: >=70 good, >=40 middling, below that poor —
-// shared with EventPage's SubmissionTracker for a consistent read of
-// "what does this score mean" across the whole app.
 function scoreTone(score: number): string {
   if (score >= 70) return "text-emerald-400";
   if (score >= 40) return "text-amber-400";
@@ -65,12 +52,6 @@ function formatTimestamp(iso: string): string {
   });
 }
 
-// One row in the leaderboard table, plus (when clicked) a second
-// expanded row underneath showing the AI's full notes. `stage` is the
-// live sub-stage hint for rows currently "evaluating" — passed down
-// from Dashboard's liveStages map since the worker's WebSocket
-// messages are keyed by submission id, not attached to the Submission
-// object itself.
 function SubmissionRow({
   submission,
   stage,
@@ -82,8 +63,6 @@ function SubmissionRow({
   const isEvaluating = submission.status === "evaluating";
   const hasDetail = Boolean(submission.notes);
 
-  // Stage 3 stores "<tech summary> | <rationale>"; disqualification
-  // notes are just the reason with no separator.
   const [techSummary, rationale] = submission.notes?.includes(" | ")
     ? submission.notes.split(" | ")
     : [null, submission.notes];
@@ -104,7 +83,6 @@ function SubmissionRow({
             href={submission.github_url}
             target="_blank"
             rel="noreferrer"
-            // Stop the click from also toggling the row's expand/collapse.
             onClick={(e) => e.stopPropagation()}
             className="inline-flex items-center gap-1 text-zinc-400 hover:text-teal-400"
           >
@@ -141,8 +119,6 @@ function SubmissionRow({
           )}
         </td>
       </tr>
-      {/* Second <tr> for the expanded detail panel — valid as a sibling
-          of the row above inside the same <tbody> (see the render below). */}
       {expanded && hasDetail && (
         <tr className="border-b border-white/5 bg-zinc-900/60">
           <td colSpan={5} className="px-4 py-4">
@@ -173,33 +149,21 @@ function SubmissionRow({
 
 export default function Dashboard() {
   const navigate = useNavigate();
-
-  // --- Campaign switcher ---
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [campaignsLoaded, setCampaignsLoaded] = useState(false);
   const [selectedCampaignId, setSelectedCampaignId] = useState<number | null>(
     null,
   );
-
-  // --- Submissions for the selected campaign ---
   const [submissions, setSubmissions] = useState<Submission[]>([]);
-  // Keyed by submission id rather than stored on Submission itself,
-  // since `stage` is an ephemeral WebSocket-only hint, not part of the
-  // REST API's Submission shape.
   const [liveStages, setLiveStages] = useState<
     Record<number, EvaluationStage | null>
   >({});
-
-  // --- Filters ---
   const [threshold, setThreshold] = useState(0);
   const [statusFilter, setStatusFilter] = useState<Set<Submission["status"]>>(
     new Set(),
   );
-
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Reflects whether the WebSocket below is currently connected — shown
-  // as the Live/Offline indicator at the bottom of the sidebar.
   const [live, setLive] = useState(false);
 
   const toggleStatusFilter = (status: Submission["status"]) => {
@@ -211,9 +175,6 @@ export default function Dashboard() {
     });
   };
 
-  // Fetch the campaign list once on mount and default to the first one
-  // (newest, since the API returns them id-descending) — see
-  // apps/api/routers/campaigns.py's list_campaigns.
   useEffect(() => {
     axios
       .get<Campaign[]>(`${API_BASE}/api/campaigns`)
@@ -232,8 +193,6 @@ export default function Dashboard() {
       .finally(() => setCampaignsLoaded(true));
   }, []);
 
-  // Also exposed as the Refresh button's onClick, for a manual re-fetch
-  // on top of the automatic live updates.
   const load = async () => {
     if (selectedCampaignId === null) return;
     setLoading(true);
@@ -250,22 +209,12 @@ export default function Dashboard() {
     }
   };
 
-  // Re-fetch the full submission list whenever the selected campaign
-  // changes (including the very first time it's set, above). Clearing
-  // `submissions` first avoids showing the *previous* campaign's rows
-  // while the new campaign's data is still loading.
   useEffect(() => {
     if (selectedCampaignId === null) return;
     setSubmissions([]);
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCampaignId]);
 
-  // Live updates: one WebSocket per selected campaign, reconnected
-  // whenever selectedCampaignId changes. This is the same
-  // `campaign_{id}_updates` channel EventPage.tsx listens to for a
-  // single submission — here every message for the whole campaign is
-  // relevant, since this table shows every submission at once.
   useEffect(() => {
     if (selectedCampaignId === null) return;
 
@@ -284,7 +233,6 @@ export default function Dashboard() {
       } catch {
         return;
       }
-      // Patch the matching row in place — no re-fetch, no flicker.
       setSubmissions((prev) =>
         prev.map((s) =>
           s.id === update.submission_id
@@ -303,13 +251,9 @@ export default function Dashboard() {
       }));
     };
 
-    // Close the old socket before opening a new one for a different
-    // campaign, or on unmount.
     return () => ws.close();
   }, [selectedCampaignId]);
 
-  // Per-status counts shown as the little number badge on each filter
-  // chip — recomputed only when the submission list actually changes.
   const statusCounts = useMemo(() => {
     const counts: Record<Submission["status"], number> = {
       pending: 0,
@@ -321,8 +265,6 @@ export default function Dashboard() {
     return counts;
   }, [submissions]);
 
-  // The rows actually rendered: both filters (status chips and score
-  // threshold) apply together — a submission must pass both to show.
   const visible = useMemo(
     () =>
       submissions.filter((s) => {
@@ -338,7 +280,6 @@ export default function Dashboard() {
 
   return (
     <div className="flex min-h-screen bg-zinc-950 text-zinc-50">
-      {/* Sidebar: brand, campaign switcher, nav, connection status. */}
       <aside className="flex w-60 shrink-0 flex-col border-r border-white/10 bg-zinc-900">
         <div className="flex items-center gap-2 border-b border-white/10 px-5 py-4">
           <Trophy className="h-5 w-5 text-teal-400" />
@@ -380,8 +321,6 @@ export default function Dashboard() {
           </button>
         </nav>
 
-        {/* Reflects the WebSocket connection state set in the effect
-            above — green+pulsing when connected, grey when not. */}
         <div className="border-t border-white/10 px-4 py-3">
           <span
             className={`inline-flex items-center gap-1.5 text-xs font-medium ${
@@ -400,7 +339,6 @@ export default function Dashboard() {
 
       <main className="flex-1 overflow-x-auto">
         {noCampaigns ? (
-          // Onboarding empty state: no campaigns exist anywhere yet.
           <div className="flex h-full items-center justify-center p-12">
             <div className="text-center">
               <Trophy className="mx-auto h-8 w-8 text-zinc-700" />
@@ -422,9 +360,6 @@ export default function Dashboard() {
           </div>
         ) : (
           <>
-            {/* Toolbar: status filter chips + Refresh on top, score
-                threshold slider below — both act on the same `visible`
-                list computed above. */}
             <div className="border-b border-white/10 px-6 py-4">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -500,8 +435,6 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* Three states: initial load, filtered-to-empty (or truly
-                empty), and the actual table. */}
             {loading && submissions.length === 0 ? (
               <p className="px-6 py-8 text-sm text-zinc-500">
                 Loading submissions…

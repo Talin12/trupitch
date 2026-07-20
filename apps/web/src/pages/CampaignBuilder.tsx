@@ -1,9 +1,3 @@
-// Organizer-facing form ("/admin/campaigns/new") for creating a new
-// hackathon campaign: standard entry rules (team size, deadlines, late
-// submission policy) on one side, the weighted judging rubric on the
-// other. On success it POSTs directly to the campaigns API and
-// redirects back to the dashboard.
-
 import { useState } from "react";
 import axios, { AxiosError } from "axios";
 import { useNavigate } from "react-router-dom";
@@ -17,14 +11,11 @@ import {
 } from "lucide-react";
 import { API_BASE } from "../types";
 
-// Local-only shape for a rule while it's still being edited in this
-// form; converted to the API's RuleCreate shape on submit.
 interface RuleDraft {
   description: string;
   weight: number;
 }
 
-// Shared Tailwind classes for every text/number/date input on this page.
 const INPUT_CLASS =
   "w-full rounded-md border border-white/10 bg-zinc-950 px-3 py-2 text-sm text-zinc-50 " +
   "placeholder:text-zinc-500 focus:border-teal-500 focus:outline-none " +
@@ -32,9 +23,6 @@ const INPUT_CLASS =
 
 const LABEL_CLASS = "mb-1 block text-sm font-medium text-zinc-300";
 
-// A hand-rolled on/off switch (no extra dependency) used for the
-// "Allow late submissions" setting. Purely presentational — all state
-// lives in the parent via `checked`/`onChange`.
 function Toggle({
   checked,
   onChange,
@@ -73,21 +61,15 @@ function Toggle({
 
 export default function CampaignBuilder() {
   const navigate = useNavigate();
-
-  // --- "Standard Configuration" fields ---
   const [name, setName] = useState("");
   const [startDate, setStartDate] = useState("");
   const [deadline, setDeadline] = useState("");
   const [maxTeamSize, setMaxTeamSize] = useState(4);
   const [maxSubmissionsPerTeam, setMaxSubmissionsPerTeam] = useState(1);
   const [allowLateSubmissions, setAllowLateSubmissions] = useState(false);
-
-  // --- "Evaluation Rubric" — one example rule pre-filled to show the
-  // organizer the expected shape/tone of a good rule. ---
   const [rules, setRules] = useState<RuleDraft[]>([
     { description: "Uses AI meaningfully, not as a gimmick", weight: 1.0 },
   ]);
-
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -106,9 +88,6 @@ export default function CampaignBuilder() {
     e.preventDefault();
     setError(null);
 
-    // Blank rule rows (added via "Add Rule" but never filled in) are
-    // silently dropped rather than rejected — only a genuinely empty
-    // rubric (zero non-blank rules) blocks submission.
     const cleanRules = rules.filter((r) => r.description.trim().length > 0);
     if (!name.trim() || !deadline || cleanRules.length === 0) {
       setError(
@@ -119,11 +98,8 @@ export default function CampaignBuilder() {
 
     setSubmitting(true);
     try {
-      // organizer_id omitted: the API resolves the configured default
-      // organizer until organizer auth exists.
       await axios.post(`${API_BASE}/api/campaigns`, {
         name: name.trim(),
-        // datetime-local is timezone-naive; send explicit UTC instants
         start_date: startDate ? new Date(startDate).toISOString() : null,
         deadline: new Date(deadline).toISOString(),
         status: "open",
@@ -169,8 +145,6 @@ export default function CampaignBuilder() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Two-column layout: entry rules on the left, rubric on the
-              right (stacks to one column below the lg breakpoint). */}
           <div className="grid gap-6 lg:grid-cols-2">
             <section className="rounded-lg border border-white/10 bg-zinc-900 p-6">
               <div className="mb-4 flex items-center gap-2">
@@ -201,8 +175,6 @@ export default function CampaignBuilder() {
                     <label htmlFor="startDate" className={LABEL_CLASS}>
                       Start date
                     </label>
-                    {/* Optional — purely informational on the frontend,
-                        not enforced by the API. */}
                     <input
                       id="startDate"
                       type="datetime-local"
@@ -293,11 +265,6 @@ export default function CampaignBuilder() {
               </p>
 
               <div className="space-y-2">
-                {/* One compact row per rule: description + weight +
-                    remove button. Removing is disabled when only one
-                    rule remains, so the rubric can never be emptied via
-                    this button (the form-level validation above still
-                    guards against a rubric of only-blank rows). */}
                 {rules.map((rule, index) => (
                   <div
                     key={index}

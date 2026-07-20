@@ -34,6 +34,20 @@ class Settings(BaseSettings):
     admin_email: str = "admin@trupitch.local"
     admin_name: str = "Admin User"
 
+    # Credentials for the internal SQLAdmin panel mounted at /admin. This
+    # is a staff-only, Django-style CRUD view over the raw tables — kept
+    # separate from the organizer-facing SPA. The panel refuses every
+    # login until ADMIN_PASSWORD is set to a non-empty value, so it stays
+    # locked by default rather than shipping an open door.
+    admin_username: str = "admin"
+    admin_password: str = ""
+    # Signing key for the admin panel's session cookie and login tokens,
+    # kept separate from JWT_SECRET so the staff panel and the hacker
+    # session don't share a secret. Falls back to jwt_secret if unset so
+    # existing deployments keep working, but set it explicitly to isolate
+    # the two (e.g. `openssl rand -hex 32`).
+    admin_session_secret: str = ""
+
     # GitHub OAuth app credentials (create at github.com/settings/developers).
     # Used by routers/auth.py to run the login/callback exchange.
     github_client_id: str = ""

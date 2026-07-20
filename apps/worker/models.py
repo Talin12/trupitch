@@ -31,7 +31,6 @@ class Submission(Base):
     campaign_id: Mapped[int]
     github_url: Mapped[str] = mapped_column(String(512))
     pitch_text: Mapped[str] = mapped_column(Text)
-    # pending | evaluating | evaluated | disqualified
     status: Mapped[str] = mapped_column(String(32))
     final_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     notes: Mapped[str | None] = mapped_column(String(1024), nullable=True)

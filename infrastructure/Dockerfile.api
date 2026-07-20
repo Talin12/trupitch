@@ -1,13 +1,7 @@
-# Container image for the FastAPI backend (apps/api/). Built with
-# context: ./apps/api (see docker-compose.yml), so COPY paths below are
-# relative to that directory, not the repo root.
 FROM python:3.12-slim
 
 WORKDIR /app
 
-# Copy just requirements.txt first so Docker's layer cache is reused
-# (dependencies reinstalled only when requirements.txt itself changes,
-# not on every source code edit).
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -15,6 +9,4 @@ COPY . .
 
 EXPOSE 8000
 
-# --reload watches for file changes — fine for the docker-compose dev
-# setup (which bind-mounts the source), not meant for production.
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

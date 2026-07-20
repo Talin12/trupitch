@@ -1,8 +1,3 @@
-// Public landing page ("/"): a hero section plus a grid of currently
-// open hackathon events. This is the hacker's entry point into the
-// app — clicking an event card goes to EventPage.tsx, where
-// authentication and the actual submission form live.
-
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { Link } from "react-router-dom";
@@ -17,9 +12,6 @@ function formatDeadline(iso: string): string {
   });
 }
 
-// One clickable card per open campaign, showing just enough to decide
-// whether to click in: name, deadline, and rubric size. The full rubric
-// (each rule's text and weight) only appears on EventPage.
 function EventCard({ campaign }: { campaign: Campaign }) {
   return (
     <Link
@@ -30,9 +22,6 @@ function EventCard({ campaign }: { campaign: Campaign }) {
         <h3 className="text-base font-semibold text-zinc-50">
           {campaign.name}
         </h3>
-        {/* Static "open" badge is safe here because this component only
-            ever renders campaigns already filtered to status === "open"
-            (see the campaigns.filter call below). */}
         <span className="inline-flex shrink-0 items-center rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
           open
         </span>
@@ -57,15 +46,10 @@ function EventCard({ campaign }: { campaign: Campaign }) {
 }
 
 export default function Home() {
-  // campaigns is already filtered to status === "open" before it's
-  // stored — nothing downstream needs to re-check status.
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // One-shot fetch on mount: this page doesn't need live updates (no
-  // WebSocket here), since new campaigns opening is a rare, organizer-
-  // driven event rather than something that changes second-to-second.
   useEffect(() => {
     axios
       .get<Campaign[]>(`${API_BASE}/api/campaigns`)
@@ -108,9 +92,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Three distinct states: still loading, loaded-but-empty, and
-            loaded-with-results — kept as an if/else-if chain so only one
-            of "Loading…", the empty state, or the grid ever renders. */}
         {!loaded ? (
           <p className="text-sm text-zinc-500">Loading events…</p>
         ) : campaigns.length === 0 && !error ? (

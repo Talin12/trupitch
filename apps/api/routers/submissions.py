@@ -8,10 +8,12 @@ managing campaigns.
 """
 
 import logging
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.celery_client import celery_client
@@ -126,6 +128,45 @@ async def submit_project(
             detail=(
                 f"Campaign {campaign_id} is not accepting submissions "
                 f"(status: {campaign.status})"
+            ),
+        )
+
+    # Deterministic entry rules (set by the organizer in the Campaign
+    # Builder). These are enforced here, at ingestion, before we spend a
+    # GitHub round-trip or queue any worker job.
+    #
+    # Note: Campaign.max_team_size is intentionally NOT enforced here —
+    # a submission carries only team_name/github_url/pitch_text, never a
+    # team roster, so the API has no member count to check against. It
+    # stays a display-only hint until a team-membership model exists.
+
+    # Late-submission policy: past the deadline, reject unless the campaign
+    # explicitly allows late entries. deadline is stored tz-aware, so we
+    # compare against tz-aware "now".
+    if not campaign.allow_late_submissions and datetime.now(timezone.utc) > campaign.deadline:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"The deadline for campaign {campaign_id} has passed "
+                "and late submissions are not allowed"
+            ),
+        )
+
+    # Per-team submission cap: count this campaign's existing submissions
+    # under the same team name (case-insensitive, so "Team A"/"team a"
+    # can't trivially bypass the limit).
+    team_submission_count = await db.scalar(
+        select(func.count(Submission.id)).where(
+            Submission.campaign_id == campaign_id,
+            func.lower(Submission.team_name) == payload.team_name.strip().lower(),
+        )
+    )
+    if team_submission_count >= campaign.max_submissions_per_team:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Team '{payload.team_name}' has reached the maximum of "
+                f"{campaign.max_submissions_per_team} submission(s) for this campaign"
             ),
         )
 

@@ -1,10 +1,6 @@
 import { Link } from "react-router-dom";
 import { Rocket } from "lucide-react";
 
-// Shared header for the hacker-facing pages (Home, EventPage). Just a
-// brand mark linking back to "/" and a link over to the organizer
-// dashboard — there's no auth-aware state here (e.g. no "signed in as
-// ..." indicator), since that lives inside EventPage itself.
 export default function TopNav() {
   return (
     <header className="border-b border-white/10 bg-zinc-950">

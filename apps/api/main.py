@@ -9,6 +9,7 @@ beyond the /health check.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from admin import setup_admin
 from core.config import settings
 from routers import auth, campaigns, hacker, submissions
 
@@ -17,6 +18,11 @@ app = FastAPI(
     description="Automated hackathon submission filtering and judging platform.",
     version="0.1.0",
 )
+
+# Internal staff CRUD panel at /admin (SQLAdmin). Introspects the ORM
+# models, so migrations surface here automatically. Gated by ADMIN_PASSWORD
+# — see apps/api/admin.py.
+setup_admin(app)
 
 # Only the configured frontend origin may call this API from a browser.
 # allow_credentials=True is required because the SPA sends the session

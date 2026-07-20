@@ -1,9 +1,3 @@
-// The hacker-facing event page: shows one campaign's details and
-// rubric, gates the submission form behind GitHub OAuth, and — once a
-// submission is made — shows its live evaluation progress in place of
-// a static "submitted" message. This is the most complex page in the
-// app; see the section comments below for how it's organized.
-
 import { useEffect, useState } from "react";
 import axios, { AxiosError } from "axios";
 import { Link, useParams } from "react-router-dom";
@@ -28,8 +22,6 @@ import {
   type Submission,
 } from "../types";
 
-// lucide-react dropped brand icons in a later major version, so the
-// GitHub mark is inlined as a plain SVG instead of an import.
 function GithubMark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="currentColor" className={className} aria-hidden>
@@ -38,16 +30,11 @@ function GithubMark({ className }: { className?: string }) {
   );
 }
 
-// Shared Tailwind classes for every text/select/textarea input on this
-// page, so the dark-mode styling only needs to be defined once.
 const INPUT_CLASS =
   "w-full rounded-md border border-white/10 bg-zinc-900 px-3 py-2 text-sm text-zinc-50 " +
   "placeholder:text-zinc-500 focus:border-teal-500 focus:outline-none " +
   "focus:ring-1 focus:ring-teal-500";
 
-// The 3 pipeline stages, in order, with the label shown in the
-// stepper. `key` must match the `stage` values the worker publishes
-// (see apps/worker/tasks.py's publish_update calls).
 const STAGE_STEPS: { key: EvaluationStage; label: string }[] = [
   { key: "verifying_repo", label: "Verifying repository" },
   { key: "analyzing_code", label: "Analyzing code structure" },
@@ -66,11 +53,6 @@ function formatDeadline(iso: string): string {
   });
 }
 
-// Renders the 3 stages as a vertical checklist: a filled checkmark for
-// stages already passed, a spinner for the one currently running, and
-// a hollow circle for stages not yet reached. `currentIndex` is -1
-// while still "pending" (no stage reported yet), which renders every
-// step as not-yet-reached.
 function StageStepper({ currentIndex }: { currentIndex: number }) {
   return (
     <ol className="mt-4 space-y-2">
@@ -105,15 +87,6 @@ function StageStepper({ currentIndex }: { currentIndex: number }) {
   );
 }
 
-// The live status card shown after a hacker submits. Its appearance
-// branches entirely on `status`:
-//   "disqualified" -> red card with the Stage 1 failure reason
-//   "evaluated"    -> green card with the score + collapsible AI notes
-//   otherwise      -> a live progress bar + stepper, since "pending"
-//                     and "evaluating" both mean "still working on it"
-// `status`/`stage`/`score`/`notes` are all driven by WebSocket messages
-// received in EventPage's own effect below — this component itself
-// holds no network logic, just the expand/collapse toggle for notes.
 function SubmissionTracker({
   submissionId,
   status,
@@ -144,8 +117,6 @@ function SubmissionTracker({
   }
 
   if (status === "evaluated") {
-    // Same score-banding convention used on the organizer Dashboard:
-    // >=70 good, >=40 middling, below that poor.
     const tone =
       score === null
         ? "text-zinc-500"
@@ -197,10 +168,6 @@ function SubmissionTracker({
     );
   }
 
-  // pending or evaluating: live stepper so it never looks stuck.
-  // -1 (no stage yet, i.e. still "pending") renders every step as
-  // not-yet-reached; the progress bar still shows a small sliver (8%)
-  // rather than 0% so it doesn't look empty/broken while queued.
   const currentIndex = stage
     ? STAGE_STEPS.findIndex((s) => s.key === stage)
     : -1;
@@ -237,45 +204,25 @@ function SubmissionTracker({
 }
 
 export default function EventPage() {
-  // :id from the route ("/events/:id") — the campaign this whole page
-  // is about; every API call below is scoped to this id.
   const { id } = useParams<{ id: string }>();
-
-  // --- Campaign data ---
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [notFound, setNotFound] = useState(false);
-
-  // --- Auth state ---
-  // Lazily initialized: on first render, check the URL for a token
-  // freshly delivered by the OAuth callback redirect; if there isn't
-  // one, fall back to whatever's already in localStorage from a prior
-  // visit. Either way this only runs once (the `() => ...` form).
   const [token, setToken] = useState<string | null>(
     () => captureTokenFromUrl() ?? getToken(),
   );
   const [repos, setRepos] = useState<Repo[]>([]);
   const [reposLoading, setReposLoading] = useState(false);
-
-  // --- Submission form fields ---
   const [teamName, setTeamName] = useState("");
   const [githubUrl, setGithubUrl] = useState("");
   const [pitchText, setPitchText] = useState("");
   const [submitting, setSubmitting] = useState(false);
-
-  // --- Live tracking of the submission just made ---
-  // submittedId is null until the form is successfully submitted; the
-  // other four mirror whatever the latest WebSocket message (or the
-  // initial POST response) said about that one submission.
   const [submittedId, setSubmittedId] = useState<number | null>(null);
   const [liveStatus, setLiveStatus] = useState<Submission["status"] | null>(null);
   const [liveStage, setLiveStage] = useState<EvaluationStage | null>(null);
   const [liveScore, setLiveScore] = useState<number | null>(null);
   const [liveNotes, setLiveNotes] = useState<string | null>(null);
-
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch the campaign itself once, whenever the :id route param
-  // changes (e.g. navigating between two different event pages).
   useEffect(() => {
     axios
       .get<Campaign>(`${API_BASE}/api/campaigns/${id}`)
@@ -286,10 +233,6 @@ export default function EventPage() {
       });
   }, [id]);
 
-  // Once we have a token (either from initial load or right after
-  // signing in), fetch the hacker's own GitHub repos to populate the
-  // dropdown. Re-runs whenever `token` changes (login, or a 401 forcing
-  // a sign-out below, which sets token back to null and skips this).
   useEffect(() => {
     if (!token) return;
     setReposLoading(true);
@@ -303,9 +246,6 @@ export default function EventPage() {
       })
       .catch((err: AxiosError) => {
         if (err.response?.status === 401) {
-          // Stored GitHub token expired/revoked server-side; drop back
-          // to the "please sign in" gate rather than showing a broken
-          // empty dropdown.
           clearToken();
           setToken(null);
         } else {
@@ -315,9 +255,6 @@ export default function EventPage() {
       .finally(() => setReposLoading(false));
   }, [token]);
 
-  // Live progress for the submission just made: reuses the same
-  // campaign Pub/Sub channel the organizer dashboard listens on, so the
-  // hacker sees pipeline progress instead of a form that looks stuck.
   useEffect(() => {
     if (submittedId === null) return;
     const ws = new WebSocket(`ws://localhost:8000/api/campaigns/${id}/ws`);
@@ -329,9 +266,6 @@ export default function EventPage() {
       } catch {
         return;
       }
-      // This campaign's channel carries updates for *every* submission
-      // to it, not just this hacker's — ignore anything that isn't the
-      // one we just submitted.
       if (update.submission_id !== submittedId) return;
       setLiveStatus(update.status);
       setLiveStage(update.stage ?? null);
@@ -339,8 +273,6 @@ export default function EventPage() {
       setLiveNotes(update.notes);
     };
 
-    // Close the socket if submittedId changes again (a second
-    // submission) or the component unmounts (navigating away).
     return () => ws.close();
   }, [submittedId, id]);
 
@@ -361,22 +293,14 @@ export default function EventPage() {
         { team_name: teamName, github_url: githubUrl, pitch_text: pitchText },
         { headers: { Authorization: `Bearer ${token}` } },
       );
-      // Seed the live-tracking state from the 202 response itself
-      // (status will be "pending"); the WebSocket effect above then
-      // takes over as the worker actually starts processing it.
       setSubmittedId(res.data.id);
       setLiveStatus(res.data.status);
       setLiveStage(null);
       setLiveScore(res.data.final_score);
       setLiveNotes(res.data.notes);
-      // Clear the form so the hacker could submit another project;
-      // githubUrl is deliberately left as-is (still a valid repo choice).
       setTeamName("");
       setPitchText("");
     } catch (err) {
-      // Surface the API's own error message (e.g. "Campaign is not
-      // accepting submissions", "You must have push access to ...")
-      // rather than a generic failure, whenever the backend supplied one.
       const ax = err as AxiosError<{ detail?: unknown }>;
       const detail = ax.response?.data?.detail;
       setError(
@@ -389,8 +313,6 @@ export default function EventPage() {
     }
   };
 
-  // Early return: a nonexistent/removed campaign gets its own minimal
-  // page instead of falling through to the full event layout below.
   if (notFound) {
     return (
       <div className="min-h-screen bg-zinc-950">
@@ -429,16 +351,10 @@ export default function EventPage() {
           All events
         </Link>
 
-        {/* Everything below only renders once the campaign has loaded;
-            until then just show a loading line under the back-link. */}
         {!campaign ? (
           <p className="mt-6 text-sm text-zinc-500">Loading event…</p>
         ) : (
           <>
-            {/* Campaign details card: name, status, deadline, entry
-                limits, and (if any exist) the full judging rubric —
-                shown before any auth gate so a hacker can decide
-                whether to bother signing in at all. */}
             <div className="mt-4 rounded-lg border border-white/10 bg-zinc-900 p-6">
               <div className="flex items-start justify-between gap-3">
                 <h1 className="text-xl font-bold text-zinc-50">
@@ -487,8 +403,6 @@ export default function EventPage() {
               )}
             </div>
 
-            {/* Appears only after a successful submit; disappears again
-                if the hacker never submits (submittedId stays null). */}
             {submittedId !== null && (
               <SubmissionTracker
                 submissionId={submittedId}
@@ -505,10 +419,6 @@ export default function EventPage() {
               </div>
             )}
 
-            {/* Three mutually exclusive states below the details card:
-                  1. campaign closed -> just a notice, no form at all
-                  2. campaign open but not signed in -> GitHub auth gate
-                  3. campaign open and signed in -> the actual form */}
             {!isOpen ? (
               <div className="mt-6 rounded-md border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-400">
                 This event is not accepting submissions right now.
@@ -523,10 +433,6 @@ export default function EventPage() {
                   TruPitch verifies submissions against your real GitHub
                   repositories. Sign in to pick the repo you are submitting.
                 </p>
-                {/* `next` carries this exact event page's path through
-                    the OAuth flow, so the callback redirect lands back
-                    here rather than on the homepage — see
-                    apps/api/routers/auth.py's github_login/_safe_next. */}
                 <a
                   href={`${API_BASE}/api/auth/github/login?next=/events/${id}`}
                   className="mt-6 inline-flex items-center gap-2 rounded-md bg-zinc-50 px-6 py-3 text-sm font-semibold text-zinc-950 hover:bg-zinc-200"
@@ -570,11 +476,6 @@ export default function EventPage() {
                     >
                       GitHub repository
                     </label>
-                    {/* A <select> of the hacker's own repos, not a free-
-                        text URL field — the dropdown only ever lists
-                        repos GitHub says belong to this account, and
-                        the API independently re-verifies push access
-                        server-side on submit (defense in depth). */}
                     <select
                       id="repo"
                       required
