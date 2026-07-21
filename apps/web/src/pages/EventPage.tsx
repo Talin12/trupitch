@@ -213,6 +213,7 @@ export default function EventPage() {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [reposLoading, setReposLoading] = useState(false);
   const [teamName, setTeamName] = useState("");
+  const [teamSize, setTeamSize] = useState(1);
   const [githubUrl, setGithubUrl] = useState("");
   const [pitchText, setPitchText] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -290,7 +291,12 @@ export default function EventPage() {
     try {
       const res = await axios.post<Submission>(
         `${API_BASE}/api/campaigns/${id}/submit`,
-        { team_name: teamName, github_url: githubUrl, pitch_text: pitchText },
+        {
+          team_name: teamName,
+          team_size: teamSize,
+          github_url: githubUrl,
+          pitch_text: pitchText,
+        },
         { headers: { Authorization: `Bearer ${token}` } },
       );
       setSubmittedId(res.data.id);
@@ -467,6 +473,28 @@ export default function EventPage() {
                       placeholder="The Null Pointers"
                       className={INPUT_CLASS}
                     />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="teamSize"
+                      className="mb-1 block text-sm font-medium text-zinc-300"
+                    >
+                      Team size
+                    </label>
+                    <input
+                      id="teamSize"
+                      type="number"
+                      min={1}
+                      max={campaign.max_team_size}
+                      required
+                      value={teamSize}
+                      onChange={(e) => setTeamSize(Number(e.target.value))}
+                      className={INPUT_CLASS}
+                    />
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Maximum {campaign.max_team_size} for this event.
+                    </p>
                   </div>
 
                   <div>

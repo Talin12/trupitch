@@ -1,12 +1,3 @@
-"""Submission ingestion and polling.
-
-Mounted with no extra prefix by main.py (unlike the other routers), so
-the two routes below are literally /api/campaigns/{id}/submit and
-/api/submissions/{id} — the campaign one lives here rather than in
-campaigns.py because it's about hackers submitting, not organizers
-managing campaigns.
-"""
-
 import logging
 from datetime import datetime, timezone
 from urllib.parse import urlparse
@@ -30,15 +21,6 @@ router = APIRouter(tags=["submissions"])
 
 
 async def _verify_repo_access(hacker: Hacker, github_url: str) -> None:
-    """Ensure the submitted repo is one the hacker can actually push to.
-
-    The frontend only offers the hacker's own repos, but the API must not
-    trust that. Fails open only on transient GitHub errors (5xx/network),
-    never on a definitive 'no access' answer.
-    """
-    # Extract "owner" and "repo" from a URL like
-    # https://github.com/owner/repo(.git)? — anything that isn't
-    # shaped like that is rejected before we ever call GitHub.
     parsed = urlparse(github_url)
     parts = [p for p in parsed.path.split("/") if p]
     if parsed.hostname not in ("github.com", "www.github.com") or len(parts) < 2:
@@ -49,10 +31,6 @@ async def _verify_repo_access(hacker: Hacker, github_url: str) -> None:
     owner, repo = parts[0], parts[1].removesuffix(".git")
 
     try:
-        # Ask GitHub for this repo *as the hacker* (their OAuth token),
-        # not as an anonymous/app-level caller — the response includes
-        # a "permissions" block reflecting what *this specific user*
-        # can do with the repo.
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
                 f"https://api.github.com/repos/{owner}/{repo}",
@@ -63,7 +41,7 @@ async def _verify_repo_access(hacker: Hacker, github_url: str) -> None:
             )
     except httpx.HTTPError:
         logger.warning("Repo access check unavailable for %s/%s", owner, repo)
-        return  # transient GitHub outage: accept rather than block ingestion
+        return
 
     if resp.status_code == 401:
         raise HTTPException(
@@ -71,16 +49,11 @@ async def _verify_repo_access(hacker: Hacker, github_url: str) -> None:
             detail="GitHub token expired; please re-authenticate",
         )
     if resp.status_code == 404:
-        # From GitHub's perspective, "doesn't exist" and "exists but you
-        # can't see it" both return 404 — either way the hacker doesn't
-        # get to submit it.
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Repository {owner}/{repo} not found or not accessible to you",
         )
     if resp.status_code != 200:
-        # Some other unexpected GitHub response (5xx, rate limit, etc.):
-        # log it but don't block the submission over an API hiccup.
         logger.warning(
             "Repo access check got %s for %s/%s", resp.status_code, owner, repo
         )
@@ -103,19 +76,6 @@ async def submit_project(
     db: AsyncSession = Depends(get_db),
     current_hacker: Hacker = Depends(get_current_hacker)
 ) -> Submission:
-    """Ingest a submission: persist it, queue evaluation, return immediately.
-
-    This is the critical hand-off point between the API and the worker:
-    the row is committed to Postgres as SubmissionStatus.PENDING *before*
-    the Celery task is dispatched, so even if the broker dispatch below
-    fails, the submission itself is never lost — it just needs to be
-    re-queued (see the except block).
-
-    `current_hacker` comes from the Authorization: Bearer <jwt> header;
-    FastAPI resolves it via the get_current_hacker dependency before this
-    function body ever runs, so an unauthenticated request never reaches
-    here at all (it 401s first).
-    """
     campaign = await db.get(Campaign, campaign_id)
     if campaign is None:
         raise HTTPException(
@@ -131,18 +91,16 @@ async def submit_project(
             ),
         )
 
-    # Deterministic entry rules (set by the organizer in the Campaign
-    # Builder). These are enforced here, at ingestion, before we spend a
-    # GitHub round-trip or queue any worker job.
-    #
-    # Note: Campaign.max_team_size is intentionally NOT enforced here —
-    # a submission carries only team_name/github_url/pitch_text, never a
-    # team roster, so the API has no member count to check against. It
-    # stays a display-only hint until a team-membership model exists.
 
-    # Late-submission policy: past the deadline, reject unless the campaign
-    # explicitly allows late entries. deadline is stored tz-aware, so we
-    # compare against tz-aware "now".
+    if payload.team_size > campaign.max_team_size:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Team size {payload.team_size} exceeds the maximum of "
+                f"{campaign.max_team_size} for this campaign"
+            ),
+        )
+
     if not campaign.allow_late_submissions and datetime.now(timezone.utc) > campaign.deadline:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -152,9 +110,6 @@ async def submit_project(
             ),
         )
 
-    # Per-team submission cap: count this campaign's existing submissions
-    # under the same team name (case-insensitive, so "Team A"/"team a"
-    # can't trivially bypass the limit).
     team_submission_count = await db.scalar(
         select(func.count(Submission.id)).where(
             Submission.campaign_id == campaign_id,
@@ -172,11 +127,11 @@ async def submit_project(
 
     await _verify_repo_access(current_hacker, str(payload.github_url))
 
-    # Instantiate submission and explicitly link it to the authenticated hacker
     submission = Submission(
         campaign_id=campaign_id,
         hacker_id=current_hacker.id,
         team_name=payload.team_name,
+        team_size=payload.team_size,
         github_url=str(payload.github_url),
         pitch_text=payload.pitch_text,
         status=SubmissionStatus.PENDING.value,
@@ -186,15 +141,8 @@ async def submit_project(
     await db.refresh(submission)
 
     try:
-        # Fire-and-forget: the API never imports the worker's Celery app
-        # (see core/celery_client.py) — this just drops a message named
-        # "evaluate_submission" onto the Redis queue with the new row's
-        # id, and returns immediately without waiting for it to run.
         celery_client.send_task("evaluate_submission", args=[submission.id])
     except Exception:
-        # The submission is already durable in Postgres; surface the broker
-        # failure instead of silently returning 202 for a job that was never
-        # queued. Status stays 'pending' so it can be re-dispatched.
         logger.exception(
             "Broker dispatch failed for submission %s", submission.id
         )
@@ -213,12 +161,6 @@ async def submit_project(
 async def get_submission(
     submission_id: int, db: AsyncSession = Depends(get_db)
 ) -> Submission:
-    """Polling endpoint: live evaluation status and final score.
-
-    Not the primary way the dashboard gets updates (that's the WebSocket
-    in campaigns.py), but a plain REST fallback for anyone who wants to
-    check a single submission's status without a live connection.
-    """
     submission = await db.get(Submission, submission_id)
     if submission is None:
         raise HTTPException(

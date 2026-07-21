@@ -1,10 +1,3 @@
-"""add_hacker_and_oauth
-
-Revision ID: 472877f5ea5f
-Revises: 50071a317017
-Create Date: 2026-07-13 21:07:35.544468
-
-"""
 from typing import Sequence, Union
 
 from alembic import op

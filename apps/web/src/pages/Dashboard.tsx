@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import axios from "axios";
+import axios, { AxiosError } from "axios";
 import { useNavigate } from "react-router-dom";
 import {
   ExternalLink,
   Loader2,
+  LogOut,
   Plus,
   RefreshCw,
   SlidersHorizontal,
@@ -16,6 +17,7 @@ import {
   type LiveUpdate,
   type Submission,
 } from "../types";
+import { clearOrganizerToken, organizerAuthHeader } from "../lib/auth";
 
 const STATUS_DOT: Record<Submission["status"], string> = {
   evaluated: "bg-emerald-400",
@@ -175,9 +177,21 @@ export default function Dashboard() {
     });
   };
 
+  const signOut = () => {
+    clearOrganizerToken();
+    navigate("/admin/login");
+  };
+
+  // An expired/invalid organizer session comes back as 401; drop the token
+  // and bounce to the login screen instead of showing a generic error.
+  const isAuthError = (err: unknown) =>
+    (err as AxiosError)?.response?.status === 401;
+
   useEffect(() => {
     axios
-      .get<Campaign[]>(`${API_BASE}/api/campaigns`)
+      .get<Campaign[]>(`${API_BASE}/api/campaigns/mine`, {
+        headers: organizerAuthHeader(),
+      })
       .then((res) => {
         setCampaigns(res.data);
         if (res.data.length > 0) {
@@ -186,7 +200,11 @@ export default function Dashboard() {
           setLoading(false);
         }
       })
-      .catch(() => {
+      .catch((err) => {
+        if (isAuthError(err)) {
+          signOut();
+          return;
+        }
         setError("Could not load campaigns. Is the API running on port 8000?");
         setLoading(false);
       })
@@ -200,9 +218,14 @@ export default function Dashboard() {
     try {
       const res = await axios.get<Submission[]>(
         `${API_BASE}/api/campaigns/${selectedCampaignId}/submissions`,
+        { headers: organizerAuthHeader() },
       );
       setSubmissions(res.data);
-    } catch {
+    } catch (err) {
+      if (isAuthError(err)) {
+        signOut();
+        return;
+      }
       setError("Could not load submissions. Is the API running on port 8000?");
     } finally {
       setLoading(false);
@@ -318,6 +341,13 @@ export default function Dashboard() {
           >
             <Plus className="h-4 w-4" />
             New Campaign
+          </button>
+          <button
+            onClick={signOut}
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm font-medium text-zinc-300 hover:bg-white/5 hover:text-zinc-50"
+          >
+            <LogOut className="h-4 w-4" />
+            Sign out
           </button>
         </nav>
 

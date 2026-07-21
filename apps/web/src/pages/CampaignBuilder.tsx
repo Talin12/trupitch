@@ -10,6 +10,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { API_BASE } from "../types";
+import { clearOrganizerToken, organizerAuthHeader } from "../lib/auth";
 
 interface RuleDraft {
   description: string;
@@ -98,19 +99,28 @@ export default function CampaignBuilder() {
 
     setSubmitting(true);
     try {
-      await axios.post(`${API_BASE}/api/campaigns`, {
-        name: name.trim(),
-        start_date: startDate ? new Date(startDate).toISOString() : null,
-        deadline: new Date(deadline).toISOString(),
-        status: "open",
-        max_team_size: maxTeamSize,
-        max_submissions_per_team: maxSubmissionsPerTeam,
-        allow_late_submissions: allowLateSubmissions,
-        rules: cleanRules,
-      });
+      await axios.post(
+        `${API_BASE}/api/campaigns`,
+        {
+          name: name.trim(),
+          start_date: startDate ? new Date(startDate).toISOString() : null,
+          deadline: new Date(deadline).toISOString(),
+          status: "open",
+          max_team_size: maxTeamSize,
+          max_submissions_per_team: maxSubmissionsPerTeam,
+          allow_late_submissions: allowLateSubmissions,
+          rules: cleanRules,
+        },
+        { headers: organizerAuthHeader() },
+      );
       navigate("/admin");
     } catch (err) {
       const ax = err as AxiosError<{ detail?: unknown }>;
+      if (ax.response?.status === 401) {
+        clearOrganizerToken();
+        navigate("/admin/login");
+        return;
+      }
       const detail = ax.response?.data?.detail;
       setError(
         typeof detail === "string"

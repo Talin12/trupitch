@@ -1,10 +1,3 @@
-"""add_deterministic_rules_to_campaign
-
-Revision ID: 19738b8da770
-Revises: 472877f5ea5f
-Create Date: 2026-07-15 15:54:03.303776
-
-"""
 from typing import Sequence, Union
 
 from alembic import op

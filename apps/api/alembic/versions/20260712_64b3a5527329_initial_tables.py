@@ -1,10 +1,3 @@
-"""initial tables
-
-Revision ID: 64b3a5527329
-Revises:
-Create Date: 2026-07-12 22:55:00.497460
-
-"""
 from typing import Sequence, Union
 
 from alembic import op

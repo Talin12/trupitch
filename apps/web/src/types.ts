@@ -20,6 +20,7 @@ export interface Submission {
   id: number;
   campaign_id: number;
   team_name: string;
+  team_size: number;
   github_url: string;
   pitch_text: string;
   status: "pending" | "evaluating" | "evaluated" | "disqualified";

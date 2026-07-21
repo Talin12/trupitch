@@ -4,15 +4,15 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = '50071a317017'
-down_revision: Union[str, None] = '64b3a5527329'
+revision: str = 'a1b2c3d4e5f6'
+down_revision: Union[str, None] = '19738b8da770'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('submissions', sa.Column('notes', sa.String(length=1024), nullable=True))
+    op.add_column('organizers', sa.Column('password_hash', sa.String(length=255), nullable=True))
 
 
 def downgrade() -> None:
-    op.drop_column('submissions', 'notes')
+    op.drop_column('organizers', 'password_hash')
